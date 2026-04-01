@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+python-multipart
+ffmpeg-python
+google-genai
+httpx
+pydantic
+python-dotenv

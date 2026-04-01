@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+venv/
+
+# Build output
+.next/
+__pycache__/
+
+# Environment variables
+.env
+.env.local
+
+# Temp/cache files
+backend/temp/
+tsconfig.tsbuildinfo
+
+# OS files
+.DS_Store
