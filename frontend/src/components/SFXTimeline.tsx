@@ -33,6 +33,21 @@ export default function SFXTimeline({
   // this point because getDuration() returns 0 and WaveSurfer clamps all start/end
   // positions to 0, turning every region into a zero-width marker with no background.
   const [wsReady, setWsReady] = useState(false);
+  // Also gate on video metadata so duration is known when using MediaElement backend
+  const [mediaReady, setMediaReady] = useState(false);
+
+  // Track video metadata readiness
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onMeta = () => setMediaReady(true);
+    if (video.readyState >= 1) {
+      setMediaReady(true);
+    } else {
+      video.addEventListener("loadedmetadata", onMeta);
+      return () => video.removeEventListener("loadedmetadata", onMeta);
+    }
+  }, [videoRef]);
 
   // Initialize WaveSurfer
   useEffect(() => {
@@ -93,10 +108,10 @@ export default function SFXTimeline({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoSrc]);
 
-  // Sync events → regions (only after WaveSurfer is ready so getDuration() > 0)
+  // Sync events → regions (only after WaveSurfer is ready AND video metadata loaded)
   useEffect(() => {
     const regions = regionsRef.current;
-    if (!regions || !wsReady) return;
+    if (!regions || !wsReady || !mediaReady) return;
 
     const existing = regions.getRegions();
     const existingIds = new Set(existing.map((r) => r.id));
@@ -136,7 +151,7 @@ export default function SFXTimeline({
         }
       }
     }
-  }, [events, selectedId, wsReady]);
+  }, [events, selectedId, wsReady, mediaReady]);
 
   return (
     <div

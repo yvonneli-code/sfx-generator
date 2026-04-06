@@ -1,20 +1,36 @@
 import os
 import hashlib
 import asyncio
+import time
 from pathlib import Path
 from typing import List
 
 import httpx
+import jwt
 from dotenv import load_dotenv
 
 from models import SFXEvent
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
-ELEVENLABS_URL = "https://api.elevenlabs.io/v1/sound-generation"
+KLING_ACCESS_KEY = os.environ.get("KLING_ACCESS_KEY", "")
+KLING_SECRET_KEY = os.environ.get("KLING_SECRET_KEY", "")
+KLING_BASE_URL = "https://api-singapore.klingai.com"
 
 TEMP_DIR = Path(__file__).parent.parent / "temp"
+
+
+def _kling_auth_token() -> str:
+    """Generate a short-lived JWT for Kling API authentication."""
+    now = int(time.time())
+    payload = {
+        "iss": KLING_ACCESS_KEY,
+        "exp": now + 1800,
+        "nbf": now - 5,
+        "iat": now,
+    }
+    return jwt.encode(payload, KLING_SECRET_KEY, algorithm="HS256",
+                      headers={"alg": "HS256", "typ": "JWT"})
 
 
 def _cache_key(description: str, duration: float) -> str:
@@ -29,7 +45,7 @@ async def _generate_single_sfx(
     duration: float,
     force: bool = False,
 ) -> str:
-    """Generate one SFX via ElevenLabs and return local file path."""
+    """Generate one SFX via Kling API and return local file path."""
     sfx_dir = TEMP_DIR / job_id / "sfx"
     sfx_dir.mkdir(parents=True, exist_ok=True)
 
@@ -45,28 +61,72 @@ async def _generate_single_sfx(
         shutil.copy2(cache_file, output_path)
         return str(output_path)
 
-    print(f"[sfx_generator] POST {ELEVENLABS_URL} | key=...{ELEVENLABS_API_KEY[-6:]} | desc={description!r} | dur={round(duration,1)}")
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            ELEVENLABS_URL,
-            headers={
-                "xi-api-key": ELEVENLABS_API_KEY,
-                "Content-Type": "application/json",
-            },
+    # Kling minimum duration is 3.0s; clamp up and trim after
+    kling_duration = max(3.0, round(duration, 1))
+
+    token = _kling_auth_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        # 1. Create task
+        create_url = f"{KLING_BASE_URL}/v1/audio/text-to-audio"
+        print(f"[sfx_generator] POST {create_url} | desc={description!r} | dur={kling_duration}")
+        resp = await client.post(
+            create_url,
+            headers=headers,
             json={
-                "text": description,
-                "duration_seconds": round(duration, 1),
-                "prompt_influence": 0.3,
+                "prompt": description[:200],
+                "duration": kling_duration,
             },
         )
-        print(f"[sfx_generator] Response {response.status_code} | content-type={response.headers.get('content-type')} | body={response.text[:300] if not response.is_success else '<audio bytes>'}")
-        if not response.is_success:
-            raise RuntimeError(
-                f"ElevenLabs error {response.status_code}: {response.text}"
-            )
-        audio_bytes = response.content
+        print(f"[sfx_generator] Create response {resp.status_code}: {resp.text[:300]}")
+        if not resp.is_success:
+            raise RuntimeError(f"Kling create-task error {resp.status_code}: {resp.text}")
 
-    # Save to output and apply fade-out trim
+        resp_data = resp.json()
+        if resp_data.get("code") != 0:
+            raise RuntimeError(f"Kling API error: {resp_data.get('message', resp.text)}")
+
+        task_id = resp_data["data"]["task_id"]
+        print(f"[sfx_generator] Task created: {task_id}")
+
+        # 2. Poll for result
+        poll_url = f"{KLING_BASE_URL}/v1/audio/text-to-audio/{task_id}"
+        for _ in range(60):  # up to 120s at 2s intervals
+            await asyncio.sleep(2)
+            poll_resp = await client.get(poll_url, headers=headers)
+            if not poll_resp.is_success:
+                raise RuntimeError(f"Kling poll error {poll_resp.status_code}: {poll_resp.text}")
+
+            poll_data = poll_resp.json()
+            if poll_data.get("code") != 0:
+                raise RuntimeError(f"Kling poll API error: {poll_data.get('message', poll_resp.text)}")
+
+            data = poll_data["data"]
+            status = data["task_status"]
+            print(f"[sfx_generator] Poll {task_id}: {status}")
+
+            if status in ("submitted", "processing"):
+                continue
+            if status == "failed":
+                raise RuntimeError(f"Kling task failed: {data.get('task_status_msg', 'unknown')}")
+            if status == "succeed":
+                audio_url = data["task_result"]["audios"][0]["url_mp3"]
+                break
+        else:
+            raise RuntimeError(f"Kling task {task_id} timed out after 120s")
+
+        # 3. Download audio
+        print(f"[sfx_generator] Downloading audio from {audio_url[:80]}...")
+        audio_resp = await client.get(audio_url)
+        if not audio_resp.is_success:
+            raise RuntimeError(f"Failed to download audio: {audio_resp.status_code}")
+        audio_bytes = audio_resp.content
+
+    # Save to output and apply fade-out trim (using original target duration)
     output_path.write_bytes(audio_bytes)
     _apply_fade_out(str(output_path), duration)
 

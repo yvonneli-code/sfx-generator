@@ -53,20 +53,19 @@ export function useWebAudio({ events, videoRef }: UseWebAudioOptions) {
           console.log(`[useWebAudio] skipping ${ev.sfx_id} — no sfx_url`);
           continue;
         }
-        const baseUrl = ev.sfx_url.split("?")[0]; // strip cache-bust param for comparison
         const alreadyLoaded = loadedUrlRef.current.get(ev.sfx_id);
-        if (alreadyLoaded === baseUrl) continue; // same file, skip
+        if (alreadyLoaded === ev.sfx_url) continue; // same file, skip
 
         try {
-          console.log(`[useWebAudio] fetching ${baseUrl}`);
+          console.log(`[useWebAudio] fetching ${ev.sfx_url}`);
           const res = await fetch(`/api${ev.sfx_url}`);
-          if (!res.ok) { console.warn(`[useWebAudio] fetch failed ${res.status} for ${baseUrl}`); continue; }
+          if (!res.ok) { console.warn(`[useWebAudio] fetch failed ${res.status} for ${ev.sfx_url}`); continue; }
           const arrayBuffer = await res.arrayBuffer();
           const currentCtx = ctxRef.current;
           if (!currentCtx || currentCtx.state === "closed") return;
           const audioBuffer = await currentCtx.decodeAudioData(arrayBuffer);
           buffersRef.current.set(ev.sfx_id, audioBuffer);
-          loadedUrlRef.current.set(ev.sfx_id, baseUrl);
+          loadedUrlRef.current.set(ev.sfx_id, ev.sfx_url);
           console.log(`[useWebAudio] buffer ready: ${ev.sfx_id} (${audioBuffer.duration.toFixed(2)}s)`);
 
           // If video is already playing, schedule just this one new buffer
@@ -192,20 +191,29 @@ export function useWebAudio({ events, videoRef }: UseWebAudioOptions) {
   // Preview a single SFX in isolation
   const previewSFX = useCallback(async (sfxId: string) => {
     const ctx = ctxRef.current;
-    if (!ctx) return;
-    if (ctx.state === "suspended") await ctx.resume();
+    if (ctx && ctx.state === "suspended") await ctx.resume();
 
     const buffer = buffersRef.current.get(sfxId);
-    if (!buffer) return;
+    if (buffer && ctx) {
+      const ev = eventsRef.current.find((e) => e.sfx_id === sfxId);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = ctx.createGain();
+      gain.gain.value = ev?.volume ?? 1.0;
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.start();
+      return;
+    }
 
+    // Fallback: use HTML Audio element when buffer isn't loaded yet
     const ev = eventsRef.current.find((e) => e.sfx_id === sfxId);
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    const gain = ctx.createGain();
-    gain.gain.value = ev?.volume ?? 1.0;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    source.start();
+    if (ev?.sfx_url) {
+      console.log(`[useWebAudio] preview fallback via Audio element for ${sfxId}`);
+      const audio = new Audio(`/api${ev.sfx_url}`);
+      audio.volume = ev.volume ?? 1.0;
+      audio.play().catch((err) => console.warn("[useWebAudio] fallback play failed:", err));
+    }
   }, []);
 
   return { previewSFX };

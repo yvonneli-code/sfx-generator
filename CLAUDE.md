@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A full-stack AI-powered sound effects generator. Upload a video clip → Gemini AI detects moments that need sound effects → ElevenLabs generates matching audio → review and edit on an interactive timeline → export the mixed video.
+A full-stack AI-powered sound effects generator. Upload a video clip → Gemini AI detects moments that need sound effects → Kling AI generates matching audio → review and edit on an interactive timeline → export the mixed video.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ A full-stack AI-powered sound effects generator. Upload a video clip → Gemini 
 - **Backend**: FastAPI + uvicorn (`/backend`, port 8000)
 - **Frontend → Backend**: Next.js rewrites proxy `/api/*` → `http://localhost:8000/*`
 - **Start**: `./start.sh` (creates Python venv, installs deps, starts both servers)
-- **Env**: `backend/.env` — `GOOGLE_API_KEY`, `ELEVENLABS_API_KEY`
+- **Env**: `backend/.env` — `GOOGLE_API_KEY`, `KLING_ACCESS_KEY`, `KLING_SECRET_KEY`
 
 ## Backend
 
@@ -35,13 +35,15 @@ A full-stack AI-powered sound effects generator. Upload a video clip → Gemini 
 - Post-processes events: sort, deduplicate, enforce 0.5s minimum gap, max 2 events per 3s window, clamp durations to 0.3–4.0s
 - 15 allowed event categories: `impact`, `footstep`, `door`, `explosion`, `whoosh`, `creak`, `glass_break`, `water_splash`, `button_click`, `slide`, `crowd_reaction`, `animal`, `vehicle`, `wind`, `fire`
 
-**`sfx_generator.py`** — ElevenLabs `/v1/sound-generation`
-- Auth via `xi-api-key` header
+**`sfx_generator.py`** — Kling AI `/v1/audio/text-to-audio`
+- Auth via JWT (HS256) generated from `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`
+- Async task pattern: POST to create task → poll GET every 2s until `succeed` → download MP3 from result URL
+- Kling minimum duration is 3.0s; shorter durations are clamped to 3.0 then trimmed after download
 - Global MD5 cache at `temp/_cache/{hash}.mp3` keyed by `description|duration` — cache is written AFTER fade-out is applied
 - `force=True` bypasses cache (used by regenerate/explore)
 - Applies 0.1s fade-out trim via FFmpeg subprocess after generation
 - Bulk generation: semaphore(3) concurrency, 3 retries with exponential backoff
-- All SFX errors surfaced as proper HTTP exceptions with ElevenLabs response body
+- All SFX errors surfaced as proper HTTP exceptions with Kling response body
 
 **`audio_mixer.py`** — FFmpeg filter_complex
 - Builds `amix` graph with `normalize=0` (preserves original audio volume)
@@ -163,7 +165,7 @@ Each event type has a dedicated color used for timeline regions and sidebar dots
 
 - **Google AI SDK**: uses `google-genai` (NOT deprecated `google-generativeai`)
 - **WaveSurfer v7**: `"interaction"` event (not `"seek"`) provides time in seconds (not 0–1 progress)
-- **amix normalize=0**: prevents ElevenLabs audio from being divided by N inputs in export
+- **amix normalize=0**: prevents Kling audio from being divided by N inputs in export
 - **Cache after fade**: SFX cache is written after `_apply_fade_out` so cached files have the trim applied
 - **SessionStorage**: events are the source of truth on the frontend; no server-side persistence of event state
-- **ElevenLabs errors**: surfaced with full response body (status code + message) through the error chain up to the UI
+- **Kling errors**: surfaced with full response body (status code + message) through the error chain up to the UI

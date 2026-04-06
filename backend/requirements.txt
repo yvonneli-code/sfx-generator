@@ -4,5 +4,6 @@ python-multipart
 ffmpeg-python
 google-genai
 httpx
+PyJWT
 pydantic
 python-dotenv

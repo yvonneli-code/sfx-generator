@@ -39,6 +39,8 @@ export default function ReviewPage({ params }: PageProps) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [regeneratingAll, setRegeneratingAll] = useState(false);
+  const [regenAllError, setRegenAllError] = useState<string | null>(null);
 
   const [explorations, setExplorations] = useState<{ id: string; description: string; sfx_url: string }[]>([]);
   const [exploreDesc, setExploreDesc] = useState("");
@@ -190,6 +192,37 @@ export default function ReviewPage({ params }: PageProps) {
         e.sfx_id === id ? { ...e, sfx_url: `${cleanUrl}?t=${Date.now()}` } : e
       );
     });
+  }, [jobId, events]);
+
+  const handleRegenerateAll = useCallback(async () => {
+    if (events.length === 0) return;
+    setRegeneratingAll(true);
+    setRegenAllError(null);
+    try {
+      const res = await fetch(`/api/generate-sfx/${jobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(events),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { events: sfxEvents } = await res.json();
+      // Preserve existing timestamps/volumes but update sfx_url with cache-bust
+      const merged = events.map((ev) => {
+        const generated = sfxEvents.find((g: SFXEvent) => g.sfx_id === ev.sfx_id);
+        const cleanUrl = `/sfx/${jobId}/${ev.sfx_id}`;
+        return generated?.sfx_url ? { ...ev, sfx_url: `${cleanUrl}?t=${Date.now()}` } : ev;
+      });
+      const forStorage = merged.map((e) => ({
+        ...e,
+        sfx_url: e.sfx_url?.split("?")[0] ?? e.sfx_url,
+      }));
+      sessionStorage.setItem(`sfx-events-${jobId}`, JSON.stringify(forStorage));
+      setEvents(merged);
+    } catch (err) {
+      setRegenAllError(err instanceof Error ? err.message : "Regeneration failed");
+    } finally {
+      setRegeneratingAll(false);
+    }
   }, [jobId, events]);
 
   const handleOpenAddForm = useCallback(() => {
@@ -386,37 +419,67 @@ export default function ReviewPage({ params }: PageProps) {
           style={{ borderLeft: "1px solid var(--border)", background: "var(--surface)" }}
         >
           {/* Sidebar header */}
-          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
-            <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>Sound Effects</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleOpenAddForm}
-                className="flex items-center gap-1 text-[11px] font-medium transition-colors px-2 py-1 rounded-md"
-                style={{ color: "var(--accent)", background: "var(--accent-subtle)" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "rgba(99,102,241,0.14)")}
-                onMouseLeave={e => (e.currentTarget.style.background = "var(--accent-subtle)")}
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Add SFX
-              </button>
-              {events.length > 0 && (
+          <div className="px-4 py-3 space-y-2" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>Sound Effects</span>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => {
-                    if (confirm("Remove all sound effects?")) {
-                      setEvents([]);
-                      sessionStorage.removeItem(`sfx-events-${jobId}`);
-                    }
-                  }}
-                  className="text-[11px] transition-colors"
-                  style={{ color: "var(--text-sub)" }}
-                  onMouseEnter={e => (e.currentTarget.style.color = "var(--danger)")}
-                  onMouseLeave={e => (e.currentTarget.style.color = "var(--text-sub)")}
+                  onClick={handleOpenAddForm}
+                  className="flex items-center gap-1 text-[11px] font-medium transition-colors px-2 py-1 rounded-md"
+                  style={{ color: "var(--accent)", background: "var(--accent-subtle)" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(99,102,241,0.14)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "var(--accent-subtle)")}
                 >
-                  Clear all
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Add SFX
                 </button>
-              )}
+                {events.length > 0 && (
+                  <button
+                    onClick={() => {
+                      if (confirm("Remove all sound effects?")) {
+                        setEvents([]);
+                        sessionStorage.removeItem(`sfx-events-${jobId}`);
+                      }
+                    }}
+                    className="text-[11px] transition-colors"
+                    style={{ color: "var(--text-sub)" }}
+                    onMouseEnter={e => (e.currentTarget.style.color = "var(--danger)")}
+                    onMouseLeave={e => (e.currentTarget.style.color = "var(--text-sub)")}
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
             </div>
+            {events.length > 0 && (
+              <button
+                onClick={() => { if (confirm("Regenerate all sound effects? This will replace existing audio.")) handleRegenerateAll(); }}
+                disabled={regeneratingAll}
+                className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg text-[11px] font-medium transition-colors"
+                style={{
+                  color: regeneratingAll ? "var(--text-sub)" : "var(--text-muted)",
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  cursor: regeneratingAll ? "not-allowed" : "pointer",
+                }}
+                onMouseEnter={e => { if (!regeneratingAll) { e.currentTarget.style.borderColor = "var(--border-focus)"; e.currentTarget.style.color = "var(--text)"; } }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = regeneratingAll ? "var(--text-sub)" : "var(--text-muted)"; }}
+              >
+                {regeneratingAll ? (
+                  <><div className="w-2.5 h-2.5 rounded-full border animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--text-muted)" }} />Regenerating all sound effects…</>
+                ) : (
+                  <><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>Regenerate All SFX</>
+                )}
+              </button>
+            )}
           </div>
+
+          {regenAllError && (
+            <div className="px-4 py-2 text-xs flex items-center gap-2" style={{ background: "var(--danger-subtle)", borderBottom: "1px solid rgba(240,67,67,0.15)", color: "var(--danger)" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              {regenAllError}
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
 

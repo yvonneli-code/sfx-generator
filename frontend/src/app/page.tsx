@@ -55,7 +55,7 @@ export default function HomePage() {
       }
 
       setStage("generating");
-      setProgress(`Generating ${events.length} sound effects with ElevenLabs...`);
+      setProgress(`Generating ${events.length} sound effects with Kling AI...`);
       const sfxRes = await fetch(`/api/generate-sfx/${job_id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -94,7 +94,7 @@ export default function HomePage() {
             Add sound effects<br />to any video
           </h1>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            AI detects moments · ElevenLabs generates audio · Export in one click
+            AI detects moments · Kling AI generates audio · Export in one click
           </p>
         </div>
 
