@@ -10,6 +10,7 @@ import jwt
 from dotenv import load_dotenv
 
 from models import SFXEvent
+from services.audio_quality import score_audio_quality, pick_best
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -38,28 +39,18 @@ def _cache_key(description: str, duration: float) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-async def _generate_single_sfx(
+async def _kling_generate(
     job_id: str,
     sfx_id: str,
     description: str,
     duration: float,
-    force: bool = False,
+    suffix: str = "",
 ) -> str:
-    """Generate one SFX via Kling API and return local file path."""
+    """Call Kling API, download, and apply fade-out. Returns local file path."""
     sfx_dir = TEMP_DIR / job_id / "sfx"
     sfx_dir.mkdir(parents=True, exist_ok=True)
 
-    output_path = sfx_dir / f"{sfx_id}.mp3"
-
-    # Check global cache directory
-    cache_dir = TEMP_DIR / "_cache"
-    cache_dir.mkdir(exist_ok=True)
-    cache_file = cache_dir / f"{_cache_key(description, duration)}.mp3"
-
-    if not force and cache_file.exists():
-        import shutil
-        shutil.copy2(cache_file, output_path)
-        return str(output_path)
+    output_path = sfx_dir / f"{sfx_id}{suffix}.mp3"
 
     # Kling minimum duration is 3.0s; clamp up and trim after
     kling_duration = max(3.0, round(duration, 1))
@@ -130,7 +121,83 @@ async def _generate_single_sfx(
     output_path.write_bytes(audio_bytes)
     _apply_fade_out(str(output_path), duration)
 
-    # Cache the processed audio (after fade-out)
+    return str(output_path)
+
+
+async def _generate_single_sfx(
+    job_id: str,
+    sfx_id: str,
+    description: str,
+    duration: float,
+    force: bool = False,
+    event: SFXEvent | None = None,
+) -> str:
+    """Generate one SFX via Kling API with quality gate. Returns local file path."""
+    sfx_dir = TEMP_DIR / job_id / "sfx"
+    sfx_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path = sfx_dir / f"{sfx_id}.mp3"
+
+    # Check global cache directory
+    cache_dir = TEMP_DIR / "_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / f"{_cache_key(description, duration)}.mp3"
+
+    if not force and cache_file.exists():
+        import shutil
+        shutil.copy2(cache_file, output_path)
+        return str(output_path)
+
+    # Generate first attempt
+    path1 = await _kling_generate(job_id, sfx_id, description, duration)
+
+    # Quality gate (skip if no event metadata provided, e.g. from regenerate/explore endpoints)
+    if event is None:
+        import shutil
+        shutil.copy2(path1, cache_file)
+        return str(path1)
+
+    report1 = score_audio_quality(path1, event)
+    print(f"[sfx_generator] Quality gate for {sfx_id}: passed={report1['passed']}, "
+          f"reasons={report1['rejection_reasons']}")
+
+    if report1["passed"]:
+        import shutil
+        shutil.copy2(path1, cache_file)
+        return str(path1)
+
+    # First attempt failed — retry once
+    print(f"[sfx_generator] Quality gate FAILED for {sfx_id}, retrying...")
+    try:
+        path2 = await _kling_generate(job_id, sfx_id, description, duration, suffix="_retry")
+        report2 = score_audio_quality(path2, event)
+        print(f"[sfx_generator] Quality gate retry for {sfx_id}: passed={report2['passed']}, "
+              f"reasons={report2['rejection_reasons']}")
+
+        # Pick the best between the two attempts
+        best_path, best_report = pick_best([(path1, report1), (path2, report2)])
+
+        # Clean up the loser
+        import os as _os
+        loser = path2 if best_path == path1 else path1
+        try:
+            _os.remove(loser)
+        except OSError:
+            pass
+    except Exception as e:
+        print(f"[sfx_generator] Retry generation failed for {sfx_id}: {e}")
+        best_path, best_report = path1, report1
+
+    # Ensure the winner is at the canonical output path
+    if best_path != str(output_path):
+        import shutil
+        shutil.move(best_path, output_path)
+        best_path = str(output_path)
+
+    if not best_report["passed"]:
+        print(f"[sfx_generator] WARNING: using least-bad audio for {sfx_id}: {best_report['rejection_reasons']}")
+
+    # Cache the winner
     import shutil
     shutil.copy2(output_path, cache_file)
 
@@ -164,7 +231,8 @@ async def generate_sfx_for_events(job_id: str, events: List[SFXEvent]) -> List[S
             for attempt in range(3):
                 try:
                     return await _generate_single_sfx(
-                        job_id, ev.sfx_id, ev.description, ev.estimated_duration_seconds
+                        job_id, ev.sfx_id, ev.description, ev.estimated_duration_seconds,
+                        event=ev,
                     )
                 except Exception as e:
                     if attempt == 2:

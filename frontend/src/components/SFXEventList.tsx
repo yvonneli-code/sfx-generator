@@ -4,9 +4,12 @@ import { useState } from "react";
 import { SFXEvent, EventType, EVENT_COLORS } from "@/types";
 
 const ALL_EVENT_TYPES: EventType[] = [
-  "impact", "footstep", "door", "explosion", "whoosh", "creak",
-  "glass_break", "water_splash", "button_click", "slide",
-  "crowd_reaction", "animal", "vehicle", "wind", "fire",
+  "whoosh", "riser", "reverse_hit",
+  "stinger", "ding",
+  "ui_pop", "ui_slide",
+  "impact", "footstep", "door", "button_click", "body", "environment",
+  "ambient",
+  "meme_sfx",
 ];
 
 interface Props {
@@ -186,9 +189,33 @@ export default function SFXEventList({
                       outline: "none",
                     }}
                   >
-                    {ALL_EVENT_TYPES.map((t) => (
-                      <option key={t} value={t}>{t.replace(/_/g, " ")}</option>
-                    ))}
+                    <optgroup label="Transition">
+                      <option value="whoosh">Whoosh</option>
+                      <option value="riser">Riser</option>
+                      <option value="reverse_hit">Reverse Hit</option>
+                    </optgroup>
+                    <optgroup label="Emphasis">
+                      <option value="stinger">Stinger</option>
+                      <option value="ding">Ding</option>
+                    </optgroup>
+                    <optgroup label="UI / Graphics">
+                      <option value="ui_pop">UI Pop</option>
+                      <option value="ui_slide">UI Slide</option>
+                    </optgroup>
+                    <optgroup label="Foley">
+                      <option value="impact">Impact</option>
+                      <option value="footstep">Footstep</option>
+                      <option value="door">Door</option>
+                      <option value="button_click">Button Click</option>
+                      <option value="body">Body</option>
+                      <option value="environment">Environment</option>
+                    </optgroup>
+                    <optgroup label="Ambient">
+                      <option value="ambient">Ambient</option>
+                    </optgroup>
+                    <optgroup label="Comedic">
+                      <option value="meme_sfx">Meme SFX</option>
+                    </optgroup>
                   </select>
                 </div>
 

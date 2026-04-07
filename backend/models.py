@@ -4,21 +4,32 @@ from enum import Enum
 
 
 class EventType(str, Enum):
+    # Transition (editorial)
+    whoosh = "whoosh"
+    riser = "riser"
+    reverse_hit = "reverse_hit"
+
+    # Emphasis
+    stinger = "stinger"
+    ding = "ding"
+
+    # UI / Motion graphics
+    ui_pop = "ui_pop"
+    ui_slide = "ui_slide"
+
+    # Foley (physical)
     impact = "impact"
     footstep = "footstep"
     door = "door"
-    explosion = "explosion"
-    whoosh = "whoosh"
-    creak = "creak"
-    glass_break = "glass_break"
-    water_splash = "water_splash"
     button_click = "button_click"
-    slide = "slide"
-    crowd_reaction = "crowd_reaction"
-    animal = "animal"
-    vehicle = "vehicle"
-    wind = "wind"
-    fire = "fire"
+    body = "body"
+    environment = "environment"
+
+    # Ambient
+    ambient = "ambient"
+
+    # Comedic (library only)
+    meme_sfx = "meme_sfx"
 
 
 class SFXEvent(BaseModel):
@@ -59,7 +70,7 @@ class AddSFXRequest(BaseModel):
     description: str
     duration_seconds: float
     timestamp_seconds: float
-    event_type: str = "impact"
+    event_type: str = "environment"
 
 
 class ExploreRequest(BaseModel):

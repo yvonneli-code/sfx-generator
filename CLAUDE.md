@@ -32,8 +32,9 @@ A full-stack AI-powered sound effects generator. Upload a video clip → Gemini 
 **`llm_analyzer.py`** — Gemini 2.5 Flash via `google-genai` SDK
 - Uploads video to Google File API, polls until ready
 - Sends to `gemini-2.5-flash` with a structured system prompt
-- Post-processes events: sort, deduplicate, enforce 0.5s minimum gap, max 2 events per 3s window, clamp durations to 0.3–4.0s
-- 15 allowed event categories: `impact`, `footstep`, `door`, `explosion`, `whoosh`, `creak`, `glass_break`, `water_splash`, `button_click`, `slide`, `crowd_reaction`, `animal`, `vehicle`, `wind`, `fire`
+- Post-processes events: sort, deduplicate, enforce 0.5s minimum gap (ambient exempt), max 3 events per 3s window, clamp durations to 0.3–4.0s
+- 16 allowed event categories grouped by editorial priority: Transition (`whoosh`, `riser`, `reverse_hit`), Emphasis (`stinger`, `ding`), UI/Graphics (`ui_pop`, `ui_slide`), Foley (`impact`, `footstep`, `door`, `button_click`, `body`, `environment`), Ambient (`ambient`), Comedic (`meme_sfx`)
+- Unknown categories default to `environment` (open catch-all)
 
 **`sfx_generator.py`** — Kling AI `/v1/audio/text-to-audio`
 - Auth via JWT (HS256) generated from `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`
@@ -138,18 +139,25 @@ All colors are defined as CSS custom properties on `:root` and used throughout v
 
 ### SFX Event Colors (`frontend/src/types.ts`)
 
-Each event type has a dedicated color used for timeline regions and sidebar dots:
+Each event type has a dedicated color used for timeline regions and sidebar dots, grouped by editorial class:
 
-| Event | Color | | Event | Color |
-|-------|-------|-|-------|-------|
-| `impact` | `#ef4444` red | | `crowd_reaction` | `#ec4899` pink |
-| `explosion` | `#dc2626` dark red | | `animal` | `#14b8a6` teal |
-| `footstep` | `#f97316` orange | | `vehicle` | `#6366f1` indigo |
-| `fire` | `#f97316` orange | | `wind` | `#8b5cf6` violet |
-| `door` | `#eab308` yellow | | `button_click` | `#10b981` emerald |
-| `slide` | `#f59e0b` amber | | `whoosh` | `#06b6d4` cyan |
-| `creak` | `#84cc16` lime | | `water_splash` | `#3b82f6` blue |
-| `glass_break` | `#a855f7` purple | | | |
+| Class | Event | Color |
+|-------|-------|-------|
+| Transition | `whoosh` | `#06b6d4` cyan |
+| | `riser` | `#0ea5e9` sky |
+| | `reverse_hit` | `#38bdf8` light sky |
+| Emphasis | `stinger` | `#f43f5e` rose |
+| | `ding` | `#fbbf24` amber |
+| UI/Graphics | `ui_pop` | `#a3e635` lime |
+| | `ui_slide` | `#34d399` emerald |
+| Foley | `impact` | `#ef4444` red |
+| | `footstep` | `#f97316` orange |
+| | `door` | `#eab308` yellow |
+| | `button_click` | `#10b981` emerald |
+| | `body` | `#ec4899` pink |
+| | `environment` | `#8b5cf6` violet |
+| Ambient | `ambient` | `#64748b` slate |
+| Comedic | `meme_sfx` | `#f59e0b` amber |
 
 ### UI Patterns
 - **Dark theme only** — no light mode

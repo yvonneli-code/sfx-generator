@@ -7,3 +7,6 @@ httpx
 PyJWT
 pydantic
 python-dotenv
+pydub
+numpy
+audioop-lts

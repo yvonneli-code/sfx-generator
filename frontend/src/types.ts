@@ -1,19 +1,19 @@
 export type EventType =
+  | "whoosh"
+  | "riser"
+  | "reverse_hit"
+  | "stinger"
+  | "ding"
+  | "ui_pop"
+  | "ui_slide"
   | "impact"
   | "footstep"
   | "door"
-  | "explosion"
-  | "whoosh"
-  | "creak"
-  | "glass_break"
-  | "water_splash"
   | "button_click"
-  | "slide"
-  | "crowd_reaction"
-  | "animal"
-  | "vehicle"
-  | "wind"
-  | "fire";
+  | "body"
+  | "environment"
+  | "ambient"
+  | "meme_sfx";
 
 export interface SFXEvent {
   sfx_id: string;
@@ -26,19 +26,30 @@ export interface SFXEvent {
 }
 
 export const EVENT_COLORS: Record<EventType, string> = {
-  impact: "#ef4444",
-  footstep: "#f97316",
-  door: "#eab308",
-  explosion: "#dc2626",
-  whoosh: "#06b6d4",
-  creak: "#84cc16",
-  glass_break: "#a855f7",
-  water_splash: "#3b82f6",
+  // Transition — cyan/blue family
+  whoosh:       "#06b6d4",
+  riser:        "#0ea5e9",
+  reverse_hit:  "#38bdf8",
+
+  // Emphasis — warm/hot family
+  stinger:      "#f43f5e",
+  ding:         "#fbbf24",
+
+  // UI / Graphics — green family
+  ui_pop:       "#a3e635",
+  ui_slide:     "#34d399",
+
+  // Foley — orange/red family
+  impact:       "#ef4444",
+  footstep:     "#f97316",
+  door:         "#eab308",
   button_click: "#10b981",
-  slide: "#f59e0b",
-  crowd_reaction: "#ec4899",
-  animal: "#14b8a6",
-  vehicle: "#6366f1",
-  wind: "#8b5cf6",
-  fire: "#f97316",
+  body:         "#ec4899",
+  environment:  "#8b5cf6",
+
+  // Ambient — neutral
+  ambient:      "#64748b",
+
+  // Comedic — amber
+  meme_sfx:     "#f59e0b",
 };
