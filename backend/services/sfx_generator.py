@@ -223,8 +223,22 @@ def _apply_fade_out(path: str, duration: float):
 
 
 async def generate_sfx_for_events(job_id: str, events: List[SFXEvent]) -> List[SFXEvent]:
-    """Generate SFX for all events with limited concurrency and retry."""
+    """Generate SFX for all events with limited concurrency and retry.
+
+    Events with identical descriptions and durations are generated once,
+    then the result is copied to avoid duplicate Kling API calls.
+    """
     semaphore = asyncio.Semaphore(3)
+
+    # Group events by cache key to avoid duplicate Kling calls
+    from collections import defaultdict
+    groups: dict[str, list[SFXEvent]] = defaultdict(list)
+    for ev in events:
+        key = _cache_key(ev.description, ev.estimated_duration_seconds)
+        groups[key].append(ev)
+
+    # Generate once per unique description+duration, using the first event in each group
+    leaders = {key: evs[0] for key, evs in groups.items()}
 
     async def _generate_with_limit(ev: SFXEvent) -> str:
         async with semaphore:
@@ -241,15 +255,30 @@ async def generate_sfx_for_events(job_id: str, events: List[SFXEvent]) -> List[S
                     print(f"[sfx_generator] Retry {attempt + 1} for {ev.sfx_id} after {wait}s: {e}")
                     await asyncio.sleep(wait)
 
-    tasks = [_generate_with_limit(ev) for ev in events]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Run all unique generations concurrently
+    keys = list(leaders.keys())
+    coros = [_generate_with_limit(leaders[k]) for k in keys]
+    raw_results = await asyncio.gather(*coros, return_exceptions=True)
+    results = dict(zip(keys, raw_results))
 
+    # Build output: copy leader's audio file to duplicate events
+    import shutil
+    sfx_dir = TEMP_DIR / job_id / "sfx"
     updated = []
-    for ev, result in zip(events, results):
+    for ev in events:
+        key = _cache_key(ev.description, ev.estimated_duration_seconds)
+        result = results[key]
         if isinstance(result, Exception):
             print(f"[sfx_generator] Failed for {ev.sfx_id}: {result}")
             updated.append(ev)
         else:
+            # Copy the leader's file if this isn't the leader
+            leader = leaders[key]
+            if ev.sfx_id != leader.sfx_id:
+                src = sfx_dir / f"{leader.sfx_id}.mp3"
+                dst = sfx_dir / f"{ev.sfx_id}.mp3"
+                if src.exists():
+                    shutil.copy2(src, dst)
             updated.append(ev.model_copy(update={"sfx_url": f"/sfx/{job_id}/{ev.sfx_id}"}))
 
     return updated

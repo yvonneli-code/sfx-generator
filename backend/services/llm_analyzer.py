@@ -33,6 +33,36 @@ ALLOWED_CATEGORIES = [
     "meme_sfx",
 ]
 
+STYLE_MODIFIERS = {
+    "auto": "",
+    "skit": (
+        "This video is a comedy skit or meme. Prioritize punchy whooshes on cuts, "
+        "comedic stingers on punchlines, exaggerated Foley for physical gags, "
+        "and flag any recognizable meme sounds. Keep energy high and timing tight.\n\n"
+    ),
+    "tutorial": (
+        "This video is a tutorial or how-to. Prioritize clean UI pops on text/callout "
+        "overlays, subtle whooshes on section transitions, gentle dings for key points, "
+        "and minimal Foley. Keep sounds polished, modern, and non-distracting.\n\n"
+    ),
+    "cinematic": (
+        "This video is cinematic B-roll or a short film. Prioritize heavy atmospheric "
+        "whooshes, deep bass risers, dramatic stingers, rich ambient beds, and naturalistic "
+        "Foley. Favor longer durations and reverberant tails.\n\n"
+    ),
+    "talking_head": (
+        "This video is a talking-head or podcast clip. Prioritize subtle whooshes on "
+        "jump cuts, light UI pops on any text overlays or lower thirds, and one or two "
+        "emphasis stingers for key statements. Keep sounds minimal and unobtrusive.\n\n"
+    ),
+    "lifestyle": (
+        "This video is lifestyle, cooking, or ASMR-adjacent content. Prioritize rich "
+        "environmental Foley (sizzling, pouring, chopping), gentle ambient beds, soft "
+        "breathy whooshes on transitions, and warm tonal dings. Keep everything organic "
+        "and satisfying.\n\n"
+    ),
+}
+
 SYSTEM_PROMPT = """You are a sound designer specializing in short-form video content — TikTok, Reels, YouTube Shorts, and social media clips. You make content feel PRODUCED by adding the right sounds at the right moments.
 
 Your descriptions are sent directly to an AI sound effect generator. Their precision determines whether the output is usable or garbage.
@@ -233,7 +263,20 @@ If no sound events are appropriate, return: []
 
 def _post_process_events(raw_events: list, video_duration: float) -> List[SFXEvent]:
     """Sort, deduplicate, enforce gap and density constraints."""
+    # Detect if Gemini returned normalized timestamps (0-1 range) instead of seconds.
+    # If the video is longer than 2s and ALL timestamps are under 1.0, scale them.
+    if raw_events and video_duration > 2.0:
+        max_ts = max(float(e.get("timestamp_seconds", 0)) for e in raw_events)
+        if max_ts <= 1.0:
+            print(f"[llm_analyzer] Detected normalized timestamps (max={max_ts:.2f}), "
+                  f"scaling by video duration {video_duration:.1f}s")
+            for ev in raw_events:
+                ev["timestamp_seconds"] = float(ev["timestamp_seconds"]) * video_duration
+
     events = sorted(raw_events, key=lambda e: e["timestamp_seconds"])
+
+    # Cap total events: 15 per 60s, minimum 15 for clips under 60s
+    max_events = max(15, int((video_duration / 60.0) * 15))
 
     filtered = []
     last_ts = -999.0
@@ -246,6 +289,10 @@ def _post_process_events(raw_events: list, video_duration: float) -> List[SFXEve
         # Skip events outside video bounds
         if ts < 0 or ts >= video_duration:
             continue
+
+        # Enforce max events cap (15 per 60s)
+        if len(filtered) >= max_events:
+            break
 
         # Ambient events are exempt from gap and density rules — they layer
         event_type_str = ev.get("event_type", "environment")
@@ -280,7 +327,7 @@ def _post_process_events(raw_events: list, video_duration: float) -> List[SFXEve
     return filtered
 
 
-async def analyze_video(video_path: str, job_id: str) -> List[SFXEvent]:
+async def analyze_video(video_path: str, job_id: str, style: str = "auto") -> List[SFXEvent]:
     """Upload video to Gemini File API and analyze for SFX moments."""
     loop = asyncio.get_event_loop()
 
@@ -305,7 +352,8 @@ async def analyze_video(video_path: str, job_id: str) -> List[SFXEvent]:
         f"middle third ({video_duration / 3:.1f}–{video_duration * 2 / 3:.1f}s), "
         f"and final third ({video_duration * 2 / 3:.1f}–{video_duration:.1f}s) of the video."
     )
-    full_prompt = SYSTEM_PROMPT + duration_context
+    style_prefix = STYLE_MODIFIERS.get(style, "")
+    full_prompt = style_prefix + SYSTEM_PROMPT + duration_context
 
     def _upload_and_analyze():
         # Upload file to Google File API
@@ -326,7 +374,7 @@ async def analyze_video(video_path: str, job_id: str) -> List[SFXEvent]:
         print(f"[llm_analyzer] File ready: {video_file.uri}")
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-pro-preview",
             contents=[video_file],
             config=types.GenerateContentConfig(
                 system_instruction=full_prompt,

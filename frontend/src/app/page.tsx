@@ -3,14 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import VideoUpload from "@/components/VideoUpload";
+import StyleSelector from "@/components/StyleSelector";
 
-type Stage = "idle" | "uploading" | "analyzing" | "generating" | "error";
+type Stage = "idle" | "uploading" | "style_select" | "analyzing" | "generating" | "error";
 
 export default function HomePage() {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>("");
+  const [jobId, setJobId] = useState<string | null>(null);
 
   async function handleProjectFile(file: File) {
     setError(null);
@@ -41,10 +43,43 @@ export default function HomePage() {
       const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
       if (!uploadRes.ok) throw new Error(await uploadRes.text());
       const { job_id } = await uploadRes.json();
+      setJobId(job_id);
+      setStage("style_select");
+    } catch (err) {
+      setStage("error");
+      setError(err instanceof Error ? err.message : "An error occurred");
+    }
+  }
 
-      setStage("analyzing");
+  async function handleStyleConfirm(style: string) {
+    if (!jobId) return;
+    setStage("analyzing");
+
+    try {
+      let resolvedStyle = style;
+
+      // Auto: detect genre first
+      if (style === "auto") {
+        setProgress("Detecting video genre...");
+        try {
+          const detectRes = await fetch(`/api/detect-genre/${jobId}`, { method: "POST" });
+          if (detectRes.ok) {
+            const { genre } = await detectRes.json();
+            resolvedStyle = genre;
+          }
+        } catch {
+          // Detection failed — continue with "auto" (empty modifier)
+        }
+      }
+
+      sessionStorage.setItem(`sfx-style-${jobId}`, resolvedStyle);
+
       setProgress("Analyzing video with Gemini AI...");
-      const analyzeRes = await fetch(`/api/analyze/${job_id}`, { method: "POST" });
+      const analyzeRes = await fetch(`/api/analyze/${jobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ style: resolvedStyle }),
+      });
       if (!analyzeRes.ok) throw new Error(await analyzeRes.text());
       const { events } = await analyzeRes.json();
 
@@ -56,7 +91,7 @@ export default function HomePage() {
 
       setStage("generating");
       setProgress(`Generating ${events.length} sound effects with Kling AI...`);
-      const sfxRes = await fetch(`/api/generate-sfx/${job_id}`, {
+      const sfxRes = await fetch(`/api/generate-sfx/${jobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(events),
@@ -64,8 +99,8 @@ export default function HomePage() {
       if (!sfxRes.ok) throw new Error(await sfxRes.text());
       const { events: sfxEvents } = await sfxRes.json();
 
-      sessionStorage.setItem(`sfx-events-${job_id}`, JSON.stringify(sfxEvents));
-      router.push(`/review/${job_id}`);
+      sessionStorage.setItem(`sfx-events-${jobId}`, JSON.stringify(sfxEvents));
+      router.push(`/review/${jobId}`);
     } catch (err) {
       setStage("error");
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -97,6 +132,11 @@ export default function HomePage() {
             AI detects moments · Kling AI generates audio · Export in one click
           </p>
         </div>
+
+        {/* Style Select */}
+        {stage === "style_select" && (
+          <StyleSelector onConfirm={handleStyleConfirm} />
+        )}
 
         {/* Idle */}
         {stage === "idle" && (
@@ -168,7 +208,7 @@ export default function HomePage() {
               <p className="text-sm leading-relaxed" style={{ color: "var(--danger)" }}>{error}</p>
             </div>
             <button
-              onClick={() => { setStage("idle"); setError(null); }}
+              onClick={() => { setStage("idle"); setError(null); setJobId(null); }}
               className="text-xs font-medium transition-colors"
               style={{ color: "var(--text-muted)" }}
               onMouseEnter={e => (e.currentTarget.style.color = "var(--text)")}

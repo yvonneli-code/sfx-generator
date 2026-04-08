@@ -51,6 +51,10 @@ class JobStatus(BaseModel):
     error: Optional[str] = None
 
 
+class AnalyzeRequest(BaseModel):
+    style: str = "auto"
+
+
 class AnalyzeResponse(BaseModel):
     job_id: str
     events: List[SFXEvent]
@@ -91,6 +95,10 @@ class ExportRequest(BaseModel):
 class ExportResponse(BaseModel):
     job_id: str
     download_url: str
+
+
+class DetectGenreResponse(BaseModel):
+    genre: str
 
 
 class LoadProjectResponse(BaseModel):

@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 from pathlib import Path
 
-from routers import upload, analyze, sfx, export, project
+from routers import upload, analyze, sfx, export, project, genre
 
 app = FastAPI(title="SFX Generator API", version="1.0.0")
 
@@ -31,6 +31,7 @@ app.include_router(analyze.router)
 app.include_router(sfx.router)
 app.include_router(export.router)
 app.include_router(project.router)
+app.include_router(genre.router)
 
 
 @app.get("/health")
