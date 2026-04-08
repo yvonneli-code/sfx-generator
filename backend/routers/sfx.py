@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 import uuid
 from services.sfx_generator import generate_sfx_for_events, _generate_single_sfx
-from models import GenerateSFXResponse, RegenerateRequest, AddSFXRequest, ExploreRequest, ApplyExplorationRequest, SFXEvent
+from models import GenerateSFXResponse, RegenerateRequest, AddSFXRequest, ExploreRequest, ApplyExplorationRequest, CopySFXRequest, SFXEvent
 from typing import List
 
 router = APIRouter()
@@ -80,6 +80,17 @@ async def apply_exploration(job_id: str, req: ApplyExplorationRequest):
     if not explore_path.exists():
         raise HTTPException(status_code=404, detail="Exploration file not found")
     shutil.copy2(explore_path, target_path)
+    return {"sfx_url": f"/sfx/{job_id}/{req.target_sfx_id}"}
+
+
+@router.post("/copy-sfx/{job_id}")
+async def copy_sfx(job_id: str, req: CopySFXRequest):
+    import shutil
+    src = TEMP_DIR / job_id / "sfx" / f"{req.source_sfx_id}.mp3"
+    dst = TEMP_DIR / job_id / "sfx" / f"{req.target_sfx_id}.mp3"
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="Source SFX not found")
+    shutil.copy2(src, dst)
     return {"sfx_url": f"/sfx/{job_id}/{req.target_sfx_id}"}
 
 

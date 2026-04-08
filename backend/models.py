@@ -97,6 +97,11 @@ class ExportResponse(BaseModel):
     download_url: str
 
 
+class CopySFXRequest(BaseModel):
+    source_sfx_id: str
+    target_sfx_id: str
+
+
 class DetectGenreResponse(BaseModel):
     genre: str
 

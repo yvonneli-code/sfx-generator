@@ -42,14 +42,7 @@ export default function ReviewPage({ params }: PageProps) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [regeneratingAll, setRegeneratingAll] = useState(false);
-  const [regenAllError, setRegenAllError] = useState<string | null>(null);
 
-  const [explorations, setExplorations] = useState<{ id: string; description: string; sfx_url: string }[]>([]);
-  const [exploreDesc, setExploreDesc] = useState("");
-  const [generatingExplore, setGeneratingExplore] = useState(false);
-  const [exploreError, setExploreError] = useState<string | null>(null);
-  const prevSelectedRef = useRef<string | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState({
@@ -84,16 +77,6 @@ export default function ReviewPage({ params }: PageProps) {
     });
   }, [jobId]);
 
-  useEffect(() => {
-    if (selectedId && selectedId !== prevSelectedRef.current) {
-      const ev = events.find((e) => e.sfx_id === selectedId);
-      if (ev) setExploreDesc(ev.description);
-      setExplorations([]);
-      prevSelectedRef.current = selectedId;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
-
   const handleUpdateDuration = useCallback((id: string, duration: number) => {
     setEvents((prev) => {
       const updated = prev.map((e) =>
@@ -124,109 +107,62 @@ export default function ReviewPage({ params }: PageProps) {
     });
   }, [jobId]);
 
-  const handleGenerateExploration = useCallback(async () => {
-    if (!selectedId || !exploreDesc.trim()) return;
-    const ev = events.find((e) => e.sfx_id === selectedId);
-    if (!ev) return;
-    setGeneratingExplore(true);
-    setExploreError(null);
-    try {
-      const res = await fetch(`/api/explore-sfx/${jobId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: exploreDesc.trim(), duration_seconds: ev.estimated_duration_seconds }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { explore_id, sfx_url } = await res.json();
-      setExplorations((prev) => [...prev, { id: explore_id, description: exploreDesc.trim(), sfx_url }]);
-    } catch (err) {
-      setExploreError(err instanceof Error ? err.message : "Generation failed");
-    } finally {
-      setGeneratingExplore(false);
-    }
-  }, [jobId, selectedId, events, exploreDesc]);
+  const handleApplyExploration = useCallback(async (sfxId: string, exploreId: string, description: string) => {
+    const res = await fetch(`/api/apply-exploration/${jobId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_sfx_id: sfxId, explore_id: exploreId, description }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const cleanUrl = `/sfx/${jobId}/${sfxId}`;
+    setEvents((prev) => {
+      const forStorage = prev.map((e) =>
+        e.sfx_id === sfxId ? { ...e, description, sfx_url: cleanUrl } : e
+      );
+      sessionStorage.setItem(`sfx-events-${jobId}`, JSON.stringify(forStorage));
+      return forStorage.map((e) =>
+        e.sfx_id === sfxId ? { ...e, sfx_url: `${cleanUrl}?t=${Date.now()}` } : e
+      );
+    });
+  }, [jobId]);
 
-  const handleApplyExploration = useCallback(async (exploreId: string, description: string) => {
-    if (!selectedId) return;
-    try {
-      const res = await fetch(`/api/apply-exploration/${jobId}`, {
+  const handleApplyToSiblings = useCallback(async (sfxId: string, originalDescription: string) => {
+    const sourceEvent = events.find(e => e.sfx_id === sfxId);
+    if (!sourceEvent) return 0;
+
+    const siblings = events.filter(e => e.sfx_id !== sfxId && e.description === originalDescription);
+    if (siblings.length === 0) return 0;
+
+    // Copy the source event's audio to each sibling
+    await Promise.all(siblings.map(sib =>
+      fetch(`/api/copy-sfx/${jobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_sfx_id: selectedId, explore_id: exploreId, description }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const cleanUrl = `/sfx/${jobId}/${selectedId}`;
-      setEvents((prev) => {
-        const forStorage = prev.map((e) =>
-          e.sfx_id === selectedId ? { ...e, description, sfx_url: cleanUrl } : e
-        );
-        sessionStorage.setItem(`sfx-events-${jobId}`, JSON.stringify(forStorage));
-        return forStorage.map((e) =>
-          e.sfx_id === selectedId ? { ...e, sfx_url: `${cleanUrl}?t=${Date.now()}` } : e
-        );
-      });
-      setExplorations([]);
-    } catch (err) {
-      setExploreError(err instanceof Error ? err.message : "Failed to apply variation");
-    }
-  }, [jobId, selectedId]);
+        body: JSON.stringify({ source_sfx_id: sfxId, target_sfx_id: sib.sfx_id }),
+      })
+    ));
+
+    // Update all siblings' description and sfx_url in state
+    const siblingIds = new Set(siblings.map(s => s.sfx_id));
+    const now = Date.now();
+    const newDesc = sourceEvent.description;
+    setEvents((prev) => {
+      const forStorage = prev.map((e) =>
+        siblingIds.has(e.sfx_id) ? { ...e, description: newDesc, sfx_url: `/sfx/${jobId}/${e.sfx_id}` } : e
+      );
+      sessionStorage.setItem(`sfx-events-${jobId}`, JSON.stringify(forStorage));
+      return forStorage.map((e) =>
+        siblingIds.has(e.sfx_id) ? { ...e, sfx_url: `/sfx/${jobId}/${e.sfx_id}?t=${now}` } : e
+      );
+    });
+
+    return siblings.length;
+  }, [jobId, events]);
 
   const handleSetToCurrentTime = useCallback((id: string) => {
     const currentTime = videoRef.current?.currentTime ?? 0;
     handleUpdateTimestamp(id, parseFloat(currentTime.toFixed(2)));
   }, [videoRef, handleUpdateTimestamp]);
-
-  const handleRegenerate = useCallback(async (id: string, description: string) => {
-    const ev = events.find((e) => e.sfx_id === id);
-    if (!ev) return;
-    const res = await fetch(`/api/regenerate-sfx/${jobId}/${id}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description, duration_seconds: ev.estimated_duration_seconds }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const cleanUrl = `/sfx/${jobId}/${id}`;
-    setEvents((prev) => {
-      const forStorage = prev.map((e) =>
-        e.sfx_id === id ? { ...e, description, sfx_url: cleanUrl } : e
-      );
-      sessionStorage.setItem(`sfx-events-${jobId}`, JSON.stringify(forStorage));
-      return forStorage.map((e) =>
-        e.sfx_id === id ? { ...e, sfx_url: `${cleanUrl}?t=${Date.now()}` } : e
-      );
-    });
-  }, [jobId, events]);
-
-  const handleRegenerateAll = useCallback(async () => {
-    if (events.length === 0) return;
-    setRegeneratingAll(true);
-    setRegenAllError(null);
-    try {
-      const res = await fetch(`/api/generate-sfx/${jobId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(events),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { events: sfxEvents } = await res.json();
-      // Preserve existing timestamps/volumes but update sfx_url with cache-bust
-      const merged = events.map((ev) => {
-        const generated = sfxEvents.find((g: SFXEvent) => g.sfx_id === ev.sfx_id);
-        const cleanUrl = `/sfx/${jobId}/${ev.sfx_id}`;
-        return generated?.sfx_url ? { ...ev, sfx_url: `${cleanUrl}?t=${Date.now()}` } : ev;
-      });
-      const forStorage = merged.map((e) => ({
-        ...e,
-        sfx_url: e.sfx_url?.split("?")[0] ?? e.sfx_url,
-      }));
-      sessionStorage.setItem(`sfx-events-${jobId}`, JSON.stringify(forStorage));
-      setEvents(merged);
-    } catch (err) {
-      setRegenAllError(err instanceof Error ? err.message : "Regeneration failed");
-    } finally {
-      setRegeneratingAll(false);
-    }
-  }, [jobId, events]);
 
   const handleOpenAddForm = useCallback(() => {
     const currentTime = videoRef.current?.currentTime ?? 0;
@@ -454,35 +390,8 @@ export default function ReviewPage({ params }: PageProps) {
                 )}
               </div>
             </div>
-            {events.length > 0 && (
-              <button
-                onClick={() => { if (confirm("Regenerate all sound effects? This will replace existing audio.")) handleRegenerateAll(); }}
-                disabled={regeneratingAll}
-                className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg text-[11px] font-medium transition-colors"
-                style={{
-                  color: regeneratingAll ? "var(--text-sub)" : "var(--text-muted)",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--border)",
-                  cursor: regeneratingAll ? "not-allowed" : "pointer",
-                }}
-                onMouseEnter={e => { if (!regeneratingAll) { e.currentTarget.style.borderColor = "var(--border-focus)"; e.currentTarget.style.color = "var(--text)"; } }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = regeneratingAll ? "var(--text-sub)" : "var(--text-muted)"; }}
-              >
-                {regeneratingAll ? (
-                  <><div className="w-2.5 h-2.5 rounded-full border animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--text-muted)" }} />Regenerating all sound effects…</>
-                ) : (
-                  <><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>Regenerate All SFX</>
-                )}
-              </button>
-            )}
           </div>
 
-          {regenAllError && (
-            <div className="px-4 py-2 text-xs flex items-center gap-2" style={{ background: "var(--danger-subtle)", borderBottom: "1px solid rgba(240,67,67,0.15)", color: "var(--danger)" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              {regenAllError}
-            </div>
-          )}
 
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
 
@@ -604,87 +513,18 @@ export default function ReviewPage({ params }: PageProps) {
             <SFXEventList
               events={events}
               selectedId={selectedId}
+              jobId={jobId}
               onSelect={setSelectedId}
               onRemove={handleRemove}
               onPreview={previewSFX}
-              onRegenerate={handleRegenerate}
               onSetToCurrentTime={handleSetToCurrentTime}
               onUpdateDuration={handleUpdateDuration}
               onUpdateName={handleUpdateName}
               onUpdateVolume={handleUpdateVolume}
+              onApplyExploration={handleApplyExploration}
+              onApplyToSiblings={handleApplyToSiblings}
             />
 
-            {/* Explore Variations */}
-            {selectedId && (
-              <div
-                className="mt-2 pt-3 space-y-2.5"
-                style={{ borderTop: "1px solid var(--border)" }}
-              >
-                <p className="text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
-                  Explore Variations
-                </p>
-                <textarea
-                  value={exploreDesc}
-                  onChange={(e) => setExploreDesc(e.target.value)}
-                  rows={2}
-                  placeholder="Describe a sound to try..."
-                  className="w-full text-xs rounded-lg px-2.5 py-1.5 resize-none outline-none"
-                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }}
-                  onFocus={e => (e.currentTarget.style.borderColor = "var(--accent)")}
-                  onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
-                />
-                <button
-                  onClick={handleGenerateExploration}
-                  disabled={generatingExplore || !exploreDesc.trim()}
-                  className="w-full py-1.5 rounded-lg text-xs font-medium transition-colors"
-                  style={{
-                    background: "transparent",
-                    border: "1px solid var(--border)",
-                    color: generatingExplore || !exploreDesc.trim() ? "var(--text-sub)" : "var(--text-muted)",
-                    cursor: generatingExplore || !exploreDesc.trim() ? "not-allowed" : "pointer",
-                  }}
-                  onMouseEnter={e => { if (!generatingExplore && exploreDesc.trim()) (e.currentTarget.style.borderColor = "var(--border-focus)", e.currentTarget.style.color = "var(--text)"); }}
-                  onMouseLeave={e => { (e.currentTarget.style.borderColor = "var(--border)", e.currentTarget.style.color = "var(--text-muted)"); }}
-                >
-                  {generatingExplore ? "Generating…" : "+ Generate Variation"}
-                </button>
-
-                {exploreError && <p className="text-[11px]" style={{ color: "var(--danger)" }}>{exploreError}</p>}
-
-                {explorations.length > 0 && (
-                  <ul className="space-y-1">
-                    {explorations.map((exp, i) => (
-                      <li
-                        key={exp.id}
-                        className="flex items-center gap-2 px-2.5 py-2 rounded-lg"
-                        style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
-                      >
-                        <span className="text-[11px] flex-1 truncate" style={{ color: "var(--text-muted)" }}>
-                          Variation {i + 1}
-                        </span>
-                        <button
-                          title="Preview"
-                          onClick={() => { const a = new Audio(`/api${exp.sfx_url}`); a.play(); }}
-                          className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
-                          style={{ color: "var(--text-muted)" }}
-                          onMouseEnter={e => (e.currentTarget.style.color = "var(--text)")}
-                          onMouseLeave={e => (e.currentTarget.style.color = "var(--text-muted)")}
-                        >
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7-11-7z"/></svg>
-                        </button>
-                        <button
-                          onClick={() => handleApplyExploration(exp.id, exp.description)}
-                          className="text-[11px] font-medium px-2 py-0.5 rounded-md text-white transition-colors"
-                          style={{ background: "var(--accent)" }}
-                          onMouseEnter={e => (e.currentTarget.style.background = "var(--accent-hover)")}
-                          onMouseLeave={e => (e.currentTarget.style.background = "var(--accent)")}
-                        >Apply</button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
           </div>
         </aside>
       </div>
