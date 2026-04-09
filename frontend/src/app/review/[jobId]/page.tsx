@@ -354,7 +354,7 @@ export default function ReviewPage({ params }: PageProps) {
 
         {/* Right — sidebar */}
         <aside
-          className="w-72 flex-shrink-0 flex flex-col overflow-y-auto"
+          className="w-[346px] flex-shrink-0 flex flex-col overflow-y-auto"
           style={{ borderLeft: "1px solid var(--border)", background: "var(--surface)" }}
         >
           {/* Sidebar header */}

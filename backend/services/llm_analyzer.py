@@ -29,7 +29,7 @@ ALLOWED_CATEGORIES = [
     "impact", "footstep", "door", "button_click", "body", "environment",
     # Ambient (continuous atmosphere)
     "ambient",
-    # Comedic / Meme (flag only)
+    # Comedic / Meme
     "meme_sfx",
 ]
 
@@ -38,7 +38,7 @@ STYLE_MODIFIERS = {
     "skit": (
         "This video is a comedy skit or meme. Prioritize punchy whooshes on cuts, "
         "comedic stingers on punchlines, exaggerated Foley for physical gags, "
-        "and flag any recognizable meme sounds. Keep energy high and timing tight.\n\n"
+        "and meme_sfx for comedic highlights. Keep energy high and timing tight.\n\n"
     ),
     "tutorial": (
         "This video is a tutorial or how-to. Prioritize clean UI pops on text/callout "
@@ -63,7 +63,7 @@ STYLE_MODIFIERS = {
     ),
 }
 
-SYSTEM_PROMPT = """You are a sound designer specializing in short-form video content — TikTok, Reels, YouTube Shorts, and social media clips. You make content feel PRODUCED by adding the right sounds at the right moments.
+SYSTEM_PROMPT = """You are a sound designer specializing in short-form video content — TikTok, Reels, YouTube Shorts, and social media clips.
 
 Your descriptions are sent directly to an AI sound effect generator. Their precision determines whether the output is usable or garbage.
 
@@ -75,184 +75,82 @@ Before picking any individual sound events, watch the ENTIRE video and determine
 
 1. **What is this video?** — tech tutorial, vlog, product demo, short film, talking head, cinematic B-roll, meme/skit, interview, screen recording, montage, etc.
 2. **What is the narrative arc?** — How does it open? Where are the major cuts? What's the climactic moment? How does it end?
-3. **What is the pacing?** — Fast-cut social? Slow cinematic? Casual talking-head? This determines how many sounds and how prominent they should be.
-4. **Who is the audience?** — Short-form social wants punchy, polished SFX. Documentary wants subtle naturalism. Match the sound design style to the content.
+3. **What is the pacing?** — Fast-cut social? Slow cinematic? Casual talking-head?
+4. **What physical actions are visible?** — Scan for ALL visible physical interactions: hands touching objects, people walking, doors opening, objects being placed down, food being prepared, buttons being pressed, clothing rustling. These are Foley opportunities.
+5. **What text/graphics appear?** — Scan frame by frame for ANY text overlay, caption, lower third, emoji, sticker, animated graphic, subscribe button, or visual annotation that appears or animates during the video.
 
 ## Pass 2: Detect ALL moments that need sound
 
-IMPORTANT — Detect first, categorize later.
+IMPORTANT — Detect first, categorize later. Scan for these in order:
 
-Scan the video for ANY moment that would benefit from a sound effect. Do not limit yourself to a predefined list of event types. If something visible is happening that would sound better with audio design — a cut, a text overlay, a hand gesture, a pot boiling, a zipper pull, confetti falling, anything — flag it.
+1. **Every text/caption/graphic appearance** — ANY time text appears, animates, slides in, pops up, or changes on screen. This includes subtitles, captions, titles, bullet points, labels, arrows, emojis, stickers, and subscribe/like prompts. Each one gets a `ui_pop` or `ui_slide` event.
+2. **Every visible physical action** — hands clapping, objects colliding, footsteps, doors, typing, eating, drinking, touching surfaces. Each gets a Foley event.
+3. **Major scene changes** — hard cuts where the visual context shifts. These get transitions. NOT every cut — only major changes.
+4. **Emotional beats** — punchlines, reveals, dramatic pauses. These get stingers or dings.
+5. **Atmosphere changes** — new environments that feel sonically empty.
 
-After you've identified all the moments that matter, THEN assign each one the closest matching category label. The category is just a UI tag. Never skip a sound event just because it doesn't fit a category perfectly — choose the nearest match and let the description carry the specificity.
+# DIVERSITY RULES — CRITICAL
 
-# Priority order — what matters most in short-form content
+Your output MUST contain a MIX of different event types. A good sound design has variety.
 
-The sounds that make the biggest difference in short-form content are NOT traditional Foley. They are editorial sounds. Prioritize in this order:
+**Hard limits per category (for clips under 60s):**
+- `whoosh`: maximum 3. Do NOT put a whoosh on every cut.
+- `ui_pop` + `ui_slide`: at least 2 if ANY text/graphics are visible in the video.
+- Foley types (`impact`, `footstep`, `door`, `button_click`, `body`, `environment`): at least 2 if ANY physical actions are visible.
+- No single event_type should appear more than 4 times.
 
-## Priority 1: TRANSITIONS (most impactful — detect these first)
+**Each event MUST have a unique description.** Do not reuse the same description for multiple events. Even if two events are the same type (e.g., two whooshes), their descriptions must differ — describe what's specifically happening at each moment.
 
-These are the sounds that make amateur content feel professional. Place them at SCENE CHANGES and HARD CUTS to smooth the viewer's experience between visual contexts.
-
-**How to detect:** Look for every moment the visual content changes — a different camera angle, face to screen, indoor to outdoor, topic shift, any hard cut. Not every cut needs a sound, but every MAJOR scene change does.
-
-**Where transitions almost always belong:**
-- Video opening (first 1–2 seconds) — a sound that signals "this has started"
-- Every major scene change where the visual context shifts
-- Video ending (last 1–2 seconds) — a closing decay or reverse for resolution
-- Before/after reveals — the cut between states
-
-**Match the style to the genre:**
-- Tech / product: clean modern swoosh, subtle and polished
-- Fast social / meme: punchy snappy whoosh, sharp attack
-- Cinematic / slow: heavy whoosh with low-frequency weight
-- Lifestyle / cooking / calm: gentle breathy air movement, barely there
-
-**Description examples:**
-- "short clean air whoosh, left to right sweep, modern production style, no reverb, close-up"
-- "heavy slow cinematic whoosh with deep low-frequency rumble, long tail, medium distance"
-- "fast sharp snap swoosh, punchy attack, very short dry transient, close-up"
-- "gentle soft reverse cymbal decay, warm resolution feel, subtle, close-up"
-
-## Priority 2: UI / MOTION GRAPHICS (very common in short-form)
-
-Text overlays, lower thirds, bullet points, callouts, subscribe buttons, profile cards, progress bars, arrows, annotations — short-form content is PACKED with these. Each animated element benefits from a small, designed sound.
-
-**How to detect:** Look for any moment where a graphic element APPEARS, MOVES, or ANIMATES on screen. Text flying in, boxes popping up, elements sliding, anything that was not in the previous frame and is clearly an editorial overlay (not part of the real scene).
-
-**Description examples:**
-- "light bright digital pop, clean modern UI notification, very short transient, close-up"
-- "soft smooth slide-in whoosh, gentle card or panel movement, modern clean, close-up"
-- "quick subtle text appear swoosh, very fast and light, minimal, close-up"
-- "small positive ping tone, bright confirmation feel, single clean note, close-up"
-
-## Priority 3: EMPHASIS / STINGERS (emotional punctuation)
-
-Sounds that land on a beat to amplify a reaction, punchline, reveal, or dramatic moment. These are what make key moments HIT.
-
-**How to detect:** Look for INTENTIONAL editorial emphasis — a zoom into a face, dramatic pause, punchline delivery, before/after reveal, reaction shot, stat or number appearing, any moment the editor clearly wants to draw attention to.
-
-**Description examples:**
-- "deep cinematic bass drop impact, sub-heavy with short reverberant tail, powerful, close-up"
-- "bright positive ding, clean bell-like tone, single short note, confirmation feel, close-up"
-- "punchy 808 hit with short reverb tail, modern social media energy, close-up"
-- "subtle tension tone swell building over 2 seconds, synth-based suspense, medium distance"
-
-## Priority 4: FOLEY (physical reality — only when prominent)
-
-Traditional Foley: a hand clap, keyboard typing, a mug hitting a desk, a door closing. In short-form content, Foley is needed LESS than editorial sounds. Only include Foley when a physical action is clearly visible, prominent, and foreground.
-
-**If you have to choose between a Foley event and a transition on a cut — choose the transition.** It has more impact on the viewer's experience.
-
-**How to detect:** A physical object visibly does something that produces sound — hands clap, fingers type, objects collide, feet land, doors close.
-
-**Description rules for Foley — specify these four elements:**
-1. **Material + object** — "mechanical keyboard plastic keycaps," not "typing sounds"
-2. **Action + force** — "rapid burst of key presses," "firm palm clap"
-3. **Environment** — "quiet home office," "open outdoor sidewalk"
-4. **Perspective** — "close-up at desk distance," "medium distance"
-
-**Screen and device interactions:** When the video shows a screen, the sound source is the PHYSICAL HARDWARE, never the digital interface. "Single light mouse click, plastic mechanism, quiet room, close-up" — not "digital button click on computer interface." Words like "digital," "interface," "virtual," and "electronic" are never valid — replace with the actual material: plastic, glass, metal, rubber, membrane.
-
-**Description examples:**
-- "firm open-palm hand clap, sharp attack, quiet indoor room, close-up recording"
-- "mechanical keyboard key presses, plastic keycaps, rapid burst, quiet office, close-up"
-- "ceramic mug placed on wooden desk, light controlled contact, quiet room, close-up"
-- "pot of water at rolling boil on gas stovetop, large bubbles, steam, kitchen, close at counter"
-
-## Priority 5: AMBIENT (scene-setting atmosphere)
-
-Sustained background textures: room tone, outdoor atmosphere, café hum, rain, traffic. These are BEDS that span an entire scene, not discrete events.
-
-**How to detect:** When the environment changes or when a scene is visually rich with environmental detail but feels sonically empty. Use sparingly — most short-form content has music filling the background already.
-
-Use `estimated_duration_seconds` of 3.0–4.0 for ambient (the max). The user can extend.
-
-**Description examples:**
-- "quiet indoor office room tone, subtle HVAC hum, very low level, stereo, close"
-- "busy urban sidewalk, moderate traffic, distant chatter, medium distance"
-- "gentle rain on window glass, steady light rainfall, cozy indoor perspective, close-up"
-
-## Priority 6: COMEDIC / MEME (cultural references — flag only)
-
-Vine boom, record scratch, sitcom laugh track, sad trombone, among us. These only work as the SPECIFIC known clip — do not try to describe them for generation.
-
-Use the format: "LIBRARY: [name of meme sound] — [context]"
-Example: "LIBRARY: vine boom — reaction face after unexpected reveal"
-
-# What NOT to do
-
-- Do NOT spend your event budget on subtle Foley when major cuts have no transitions. Editorial sounds first.
-- Do NOT describe digital interfaces as sound sources. Describe the physical hardware.
-- Do NOT put a transition on EVERY cut. Reserve for major scene changes. Minor angle shifts within the same scene rarely need one.
-- Do NOT exceed 10 events per minute — but do NOT under-detect either. Aim for the target mix above.
-- Do NOT write descriptions under 10 words — too vague to generate. Target 15–30 words.
-- Do NOT skip a sound event just because no category fits perfectly. Choose the nearest category and let the description carry the specifics.
-- Do NOT generate meme_sfx descriptions for the AI generator. Always use "LIBRARY:" format.
-
-# Assigning event_type
-
-Remember: detect the moment first, label it second. The category is a UI tag, not a creative constraint.
+# Event types
 
 Pick the CLOSEST match from this table:
 
-**Transition:**
-| `whoosh` | Cut transition, swoosh, swipe, air sweep between scenes |
-| `riser` | Building tone leading to a reveal, drop, or punchline |
+| Type | When to use |
+|------|-------------|
+| `whoosh` | MAJOR scene change only — not every cut. Max 3. |
+| `riser` | Building tension before a reveal, drop, or punchline |
 | `reverse_hit` | Decaying resolve, outro settle, energy winding down |
-
-**Emphasis:**
-| `stinger` | Bass drop, impact hit, orchestra hit, drum accent, dramatic beat |
-| `ding` | Positive ping, bright accent, confirmation tone, notification chime |
-
-**UI / Graphics:**
-| `ui_pop` | Text appear, card pop-up, callout, element snapping into place |
-| `ui_slide` | Lower third sliding in, panel motion, progress bar, smooth reveal |
-
-**Foley:**
+| `stinger` | Bass drop, impact hit, dramatic beat on a punchline or reveal |
+| `ding` | Positive ping, confirmation tone, bright accent on key moment |
+| `ui_pop` | Text appearing, caption popping up, emoji/sticker appearing, callout snapping in |
+| `ui_slide` | Lower third sliding in, text scrolling, panel motion, progress bar |
 | `impact` | Object collision, hit, punch, drop, slap |
-| `footstep` | Walking, running, stepping |
+| `footstep` | Walking, running, stepping — when feet are visible |
 | `door` | Door, gate, hatch, lid — open/close |
-| `button_click` | Mouse click, keyboard, switch, physical tap |
-| `body` | Hand clap, snap, slap on desk, human-produced physical sounds |
-| `environment` | ANY natural or environmental source — water, wind, fire, animals, vehicles, crowds, cooking, machinery, rain, birds, boiling, crackling, or anything else not covered above |
+| `button_click` | Mouse click, keyboard press, phone tap, switch toggle |
+| `body` | Hand clap, finger snap, slap on desk, body movement |
+| `environment` | Water, wind, fire, cooking sounds, animals, vehicles, machinery, or any natural/physical source not covered above |
+| `ambient` | Room tone, atmosphere, background bed (3.0–4.0s duration) |
+| `meme_sfx` | Comedic highlight sound — dramatic bass boom, crowd laughter, exaggerated gasp, record scratch, sad trombone, questioning "huh?", comedic fail buzzer. Describe the actual sound for generation, NOT a library reference. |
 
-**Ambient:**
-| `ambient` | Room tone, atmosphere, background bed |
+# Description rules
 
-**Comedic:**
-| `meme_sfx` | Recognizable cultural/meme sound — library only |
-
-If an event doesn't fit any category well, use `environment` for physical/natural sounds or `stinger` for designed/editorial sounds, and write a highly specific description.
+- 15–30 words per description.
+- For Foley: specify material + object, action + force, environment, and perspective.
+- For editorial sounds: use sound design language (attack, tail, transient, reverb, etc.)
+- For screen/device interactions: describe the PHYSICAL HARDWARE, not the digital interface.
+- Each description must be unique — never copy-paste the same description.
 
 # Timing and duration
 
-- **Transitions (whoosh)**: Place at the FRAME of the cut — first frame of the new scene. Duration: 0.3–1.0s fast content, 1.0–2.0s cinematic.
-- **Risers**: Place 1–3 seconds BEFORE the peak moment. Duration: 1.5–4.0s.
-- **Reverse hits**: Place at the resolution moment. Duration: 0.5–2.0s.
-- **Stingers / dings**: Place at the exact frame of emphasis. Duration: 0.3–1.5s.
-- **UI pops / slides**: Place at the frame the graphic first appears or moves. Duration: 0.3–0.8s.
-- **Foley**: Place at the exact frame of physical contact. Duration: transients 0.3–0.6s, medium 0.6–1.5s, sustained 1.5–4.0s.
-- **Ambient**: Place at the first frame of the scene. Duration: 3.0–4.0s (user can extend).
-- **Meme SFX**: Place at the comedic beat. Duration: 0.5–2.0s.
-
-# Constraints
-
-- **Target 6–10 events for clips under 60 seconds.** Scale proportionally (~8 per minute). Under-detecting is worse than over-detecting — a video with only 1–2 sounds feels incomplete. If you're finding fewer than 5, you're being too conservative.
-- Minimum 0.5 second gap between events (ambient is exempt — it layers with others).
-- **Hit this mix:** 3–4 transitions at major cuts, 2–3 UI pops on text/graphics, 1–2 emphasis stingers on key beats, 1–2 Foley only for prominent physical actions, 0–1 ambient for scene-setting. Every short-form video has cuts and text — find them.
-- If forced to choose between a subtle Foley event and a transition on a cut, choose the transition.
-- Include any sound that adds production value — transitions on cuts, pops on text overlays, and stingers on punchlines are almost always present in edited short-form content.
+- **whoosh**: At the frame of the cut. Duration: 0.3–1.0s (fast) to 1.0–2.0s (cinematic).
+- **riser**: 1–3s BEFORE the peak moment. Duration: 1.5–4.0s.
+- **reverse_hit**: At the resolution. Duration: 0.5–2.0s.
+- **stinger / ding**: At the exact frame of emphasis. Duration: 0.3–1.5s.
+- **ui_pop / ui_slide**: At the frame the graphic first appears. Duration: 0.3–0.8s.
+- **Foley**: At the frame of physical contact. Duration: 0.3–4.0s depending on action.
+- **ambient**: First frame of scene. Duration: 3.0–4.0s.
+- **meme_sfx**: At the comedic beat. Duration: 0.5–2.0s.
 
 # Output
 
-Return ONLY a valid JSON array. No markdown, no explanation, no preamble.
+Return ONLY a valid JSON array. No markdown, no explanation.
 
 [
   {
     "timestamp_seconds": <float>,
-    "event_type": "<closest match from: whoosh, riser, reverse_hit, stinger, ding, ui_pop, ui_slide, impact, footstep, door, button_click, body, environment, ambient, meme_sfx>",
-    "description": "<15-30 word description — sound design language for editorial events, physical Foley language for physical events>",
+    "event_type": "<one of the types above>",
+    "description": "<unique 15-30 word description>",
     "estimated_duration_seconds": <float between 0.3 and 4.0>
   }
 ]
@@ -312,11 +210,19 @@ def _post_process_events(raw_events: list, video_duration: float) -> List[SFXEve
         if event_type_str not in ALLOWED_CATEGORIES:
             event_type_str = "environment"  # default to open catch-all
 
+        description = ev.get("description", "generic sound effect")
+
+        # Strip "LIBRARY:" prefix if Gemini still uses it — rewrite to a generatable description
+        if description.upper().startswith("LIBRARY:"):
+            description = description.split("—")[-1].strip() if "—" in description else description[8:].strip()
+            if not description or len(description) < 5:
+                description = "dramatic comedic impact hit, short and punchy, close-up"
+
         filtered.append(SFXEvent(
             sfx_id=str(uuid.uuid4()),
             timestamp_seconds=round(ts, 2),
             event_type=EventType(event_type_str),
-            description=ev.get("description", "generic sound effect"),
+            description=description,
             estimated_duration_seconds=round(dur, 2),
         ))
 
@@ -324,15 +230,32 @@ def _post_process_events(raw_events: list, video_duration: float) -> List[SFXEve
             last_ts = ts
             window_events.append(ts)
 
-    return filtered
+    # Diversity filter: cap any single event_type at 30% of total (min 3)
+    from collections import Counter
+    type_counts = Counter(e.event_type.value for e in filtered)
+    max_per_type = max(3, int(len(filtered) * 0.3))
+    diverse = []
+    running_counts: dict[str, int] = {}
+    for ev in filtered:
+        t = ev.event_type.value
+        running_counts[t] = running_counts.get(t, 0) + 1
+        if running_counts[t] <= max_per_type:
+            diverse.append(ev)
+        else:
+            print(f"[llm_analyzer] Diversity filter: dropped excess {t} at {ev.timestamp_seconds}s")
+
+    if len(diverse) < len(filtered):
+        print(f"[llm_analyzer] Diversity filter: {len(filtered)} → {len(diverse)} events")
+
+    return diverse
 
 
 async def analyze_video(video_path: str, job_id: str, style: str = "auto") -> List[SFXEvent]:
     """Upload video to Gemini File API and analyze for SFX moments."""
     loop = asyncio.get_event_loop()
 
-    # Get video duration upfront so we can include it in the prompt
-    from services.video_processor import get_video_metadata
+    # Get video duration and scene changes upfront
+    from services.video_processor import get_video_metadata, detect_scene_changes
     try:
         meta = get_video_metadata(video_path)
         video_duration = meta["duration"]
@@ -341,7 +264,15 @@ async def analyze_video(video_path: str, job_id: str, style: str = "auto") -> Li
 
     print(f"[llm_analyzer] Video duration: {video_duration}s")
 
-    # Build the duration-aware prompt
+    # Detect scene changes via FFmpeg
+    try:
+        scene_timestamps = detect_scene_changes(video_path)
+        print(f"[llm_analyzer] FFmpeg detected {len(scene_timestamps)} scene changes: {scene_timestamps}")
+    except Exception as e:
+        print(f"[llm_analyzer] Scene detection failed: {e}")
+        scene_timestamps = []
+
+    # Build the context-aware prompt
     duration_context = (
         f"\n\n# Video metadata\n\n"
         f"This video is {video_duration:.1f} seconds long. "
@@ -352,6 +283,19 @@ async def analyze_video(video_path: str, job_id: str, style: str = "auto") -> Li
         f"middle third ({video_duration / 3:.1f}–{video_duration * 2 / 3:.1f}s), "
         f"and final third ({video_duration * 2 / 3:.1f}–{video_duration:.1f}s) of the video."
     )
+
+    # Add scene change anchors if detected
+    if scene_timestamps:
+        scene_list = ", ".join(f"{t:.1f}s" for t in scene_timestamps)
+        duration_context += (
+            f"\n\n# Detected scene changes\n\n"
+            f"FFmpeg detected visual scene changes at these timestamps: [{scene_list}]. "
+            f"Use these as anchor points for transition sounds (whoosh/riser/reverse_hit). "
+            f"You do NOT need a whoosh at every one — only at major context shifts. "
+            f"Also look for text/captions and physical actions BETWEEN these cuts — "
+            f"those are where ui_pop, ui_slide, and Foley events should go."
+        )
+
     style_prefix = STYLE_MODIFIERS.get(style, "")
     full_prompt = style_prefix + SYSTEM_PROMPT + duration_context
 

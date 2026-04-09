@@ -44,8 +44,14 @@ def _mix_sync(job_id: str, events: List[SFXEvent]) -> str:
         cmd += ["-i", sfx_path]
 
     # Build filter_complex
+    # Duck original audio to 70% so SFX at 30% are always audible
+    SFX_BOOST = 3.0  # boost SFX volume so they sit at ~30% of mix
+    ORIGINAL_DUCK = 0.7  # reduce original audio to make room
+
     filter_parts = []
-    mix_labels = ["[0:a]"]
+    # Duck the original audio
+    filter_parts.append(f"[0:a]volume={ORIGINAL_DUCK}[orig]")
+    mix_labels = ["[orig]"]
 
     for idx, (ev, _) in enumerate(valid_events):
         input_idx = idx + 1
@@ -53,7 +59,7 @@ def _mix_sync(job_id: str, events: List[SFXEvent]) -> str:
         delay_ms = int(ev.timestamp_seconds * 1000)
         duration = ev.estimated_duration_seconds
 
-        vol = round(ev.volume, 3)
+        vol = round(ev.volume * SFX_BOOST, 3)
         filter_parts.append(
             f"[{input_idx}:a]"
             f"atrim=duration={duration},"

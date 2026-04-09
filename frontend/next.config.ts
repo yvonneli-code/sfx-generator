@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
     ];
   },
   experimental: {
-    proxyTimeout: 120_000, // 2 minutes — Gemini analysis can take 30-60s
+    proxyTimeout: 600_000, // 10 minutes — SFX generation with quality gate retries can be slow
   },
 };
 
